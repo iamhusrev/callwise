@@ -1,0 +1,15 @@
+databaseChangeLog:
+  - changeSet:
+      id: 002-add-tool-use-id
+      author: ahmet
+      changes:
+        - addColumn:
+            tableName: conversation_messages
+            columns:
+              - column:
+                  name: tool_use_id
+                  type: VARCHAR(64)
+      rollback:
+        - dropColumn:
+            tableName: conversation_messages
+            columnName: tool_use_id

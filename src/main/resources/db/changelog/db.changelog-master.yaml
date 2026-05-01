@@ -1,0 +1,9 @@
+databaseChangeLog:
+  - include:
+      file: db/changelog/changes/001-initial-schema.yaml
+  - include:
+      file: db/changelog/changes/002-add-tool-use-id.yaml
+  - include:
+      file: db/changelog/changes/003-scheduling-schema.yaml
+  - include:
+      file: db/changelog/changes/004-seed-technicians.yaml

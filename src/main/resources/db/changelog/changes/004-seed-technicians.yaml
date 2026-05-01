@@ -1,0 +1,138 @@
+databaseChangeLog:
+
+  # 8 technicians across the Chicago area. ZIPs and specialties intentionally overlap so the
+  # AI's lookup ("zip 60173 + washer") returns multiple candidates, exercising the ranking path.
+  - changeSet:
+      id: 004-seed-technicians
+      author: ahmet
+      changes:
+        - insert:
+            tableName: technicians
+            columns:
+              - { column: { name: id, valueNumeric: 1 } }
+              - { column: { name: name, value: "John Smith" } }
+              - { column: { name: email, value: "john.smith@callwise.demo" } }
+              - { column: { name: phone, value: "+13125551001" } }
+              - { column: { name: employed_since, valueDate: "2022-03-15" } }
+        - insert:
+            tableName: technicians
+            columns:
+              - { column: { name: id, valueNumeric: 2 } }
+              - { column: { name: name, value: "Jane Doe" } }
+              - { column: { name: email, value: "jane.doe@callwise.demo" } }
+              - { column: { name: phone, value: "+13125551002" } }
+              - { column: { name: employed_since, valueDate: "2021-06-01" } }
+        - insert:
+            tableName: technicians
+            columns:
+              - { column: { name: id, valueNumeric: 3 } }
+              - { column: { name: name, value: "Mike Garcia" } }
+              - { column: { name: email, value: "mike.garcia@callwise.demo" } }
+              - { column: { name: phone, value: "+13125551003" } }
+              - { column: { name: employed_since, valueDate: "2023-01-10" } }
+        - insert:
+            tableName: technicians
+            columns:
+              - { column: { name: id, valueNumeric: 4 } }
+              - { column: { name: name, value: "Sarah Lee" } }
+              - { column: { name: email, value: "sarah.lee@callwise.demo" } }
+              - { column: { name: phone, value: "+13125551004" } }
+              - { column: { name: employed_since, valueDate: "2020-09-20" } }
+        - insert:
+            tableName: technicians
+            columns:
+              - { column: { name: id, valueNumeric: 5 } }
+              - { column: { name: name, value: "David Kim" } }
+              - { column: { name: email, value: "david.kim@callwise.demo" } }
+              - { column: { name: phone, value: "+13125551005" } }
+              - { column: { name: employed_since, valueDate: "2024-02-01" } }
+        - insert:
+            tableName: technicians
+            columns:
+              - { column: { name: id, valueNumeric: 6 } }
+              - { column: { name: name, value: "Maria Rodriguez" } }
+              - { column: { name: email, value: "maria.rodriguez@callwise.demo" } }
+              - { column: { name: phone, value: "+13125551006" } }
+              - { column: { name: employed_since, valueDate: "2019-11-12" } }
+        - insert:
+            tableName: technicians
+            columns:
+              - { column: { name: id, valueNumeric: 7 } }
+              - { column: { name: name, value: "Tom Wilson" } }
+              - { column: { name: email, value: "tom.wilson@callwise.demo" } }
+              - { column: { name: phone, value: "+13125551007" } }
+              - { column: { name: employed_since, valueDate: "2022-08-22" } }
+        - insert:
+            tableName: technicians
+            columns:
+              - { column: { name: id, valueNumeric: 8 } }
+              - { column: { name: name, value: "Emily Nguyen" } }
+              - { column: { name: email, value: "emily.nguyen@callwise.demo" } }
+              - { column: { name: phone, value: "+13125551008" } }
+              - { column: { name: employed_since, valueDate: "2023-06-05" } }
+
+        # Reset BIGSERIAL after manual ID inserts so subsequent inserts don't collide with id=1..8
+        - sql:
+            sql: SELECT setval(pg_get_serial_sequence('technicians', 'id'), 8, true);
+
+  - changeSet:
+      id: 004-seed-service-areas
+      author: ahmet
+      changes:
+        # Chicago metro ZIPs: 60173 (Schaumburg), 60601 (Loop), 60290 (Hoffman Estates),
+        # 60302 (Oak Park), 60611 (Streeterville). Each tech covers 1-2 ZIPs.
+        - sql:
+            sql: |
+              INSERT INTO service_areas (technician_id, zip_code) VALUES
+                (1, '60173'), (1, '60601'),
+                (2, '60173'),
+                (3, '60290'), (3, '60302'),
+                (4, '60601'), (4, '60611'),
+                (5, '60173'), (5, '60290'),
+                (6, '60302'),
+                (7, '60611'), (7, '60601'),
+                (8, '60290'), (8, '60173');
+
+  - changeSet:
+      id: 004-seed-specialties
+      author: ahmet
+      changes:
+        # Distribution: every appliance type covered by at least 3 technicians, washers
+        # most-covered (highest call volume). HVAC has only 2 — a believable bottleneck.
+        - sql:
+            sql: |
+              INSERT INTO specialties (technician_id, appliance_type, skill_level) VALUES
+                (1, 'washer', 'STANDARD'),    (1, 'dryer', 'STANDARD'),
+                (2, 'washer', 'STANDARD'),    (2, 'refrigerator', 'STANDARD'),
+                (3, 'refrigerator', 'EXPERT'),(3, 'dishwasher', 'STANDARD'),
+                (4, 'oven', 'EXPERT'),        (4, 'dishwasher', 'STANDARD'),
+                (5, 'washer', 'STANDARD'),    (5, 'dryer', 'EXPERT'),     (5, 'hvac', 'STANDARD'),
+                (6, 'refrigerator', 'STANDARD'), (6, 'oven', 'STANDARD'),
+                (7, 'washer', 'EXPERT'),      (7, 'dryer', 'STANDARD'),    (7, 'dishwasher', 'STANDARD'),
+                (8, 'hvac', 'EXPERT'),        (8, 'oven', 'STANDARD');
+
+  - changeSet:
+      id: 004-seed-availability-slots
+      author: ahmet
+      changes:
+        # 14 weekdays × 4 slots/day × 8 technicians, with each tech skipping ~1 day per week
+        # (Sun/Sat already excluded by EXTRACT(dow) filter). Slots: 09-11, 11-13, 13-15, 15-17.
+        - sql:
+            sql: |
+              INSERT INTO availability_slots (technician_id, slot_date, start_time, end_time, status)
+              SELECT
+                t.id,
+                gs::date,
+                slot.start_time,
+                slot.end_time,
+                'AVAILABLE'
+              FROM (SELECT id FROM technicians) t
+              CROSS JOIN generate_series(CURRENT_DATE, CURRENT_DATE + INTERVAL '14 days', INTERVAL '1 day') gs
+              CROSS JOIN (VALUES
+                (TIME '09:00', TIME '11:00'),
+                (TIME '11:00', TIME '13:00'),
+                (TIME '13:00', TIME '15:00'),
+                (TIME '15:00', TIME '17:00')
+              ) AS slot(start_time, end_time)
+              WHERE EXTRACT(dow FROM gs) BETWEEN 1 AND 5            -- Mon-Fri
+                AND (t.id + EXTRACT(doy FROM gs)::int) % 6 <> 0;    -- pseudo-random ~16% gap so techs differ

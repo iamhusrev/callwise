@@ -1,0 +1,30 @@
+# Test profile — overrides datasource to point at the TestContainers Postgres
+# (TestContainers JDBC URL pattern: jdbc:tc:postgresql:16-alpine:///callwise_test)
+spring:
+  datasource:
+    url: jdbc:tc:postgresql:16-alpine:///callwise_test
+    driver-class-name: org.testcontainers.jdbc.ContainerDatabaseDriver
+    username: test
+    password: test
+
+  jpa:
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+  liquibase:
+    enabled: true
+
+# Provider keys are fake in tests — WireMock intercepts the calls
+anthropic:
+  api-key: test-key
+  base-url: http://localhost:0   # Overridden per-test by WireMock dynamic port
+
+groq:
+  api-key: test-key
+  base-url: http://localhost:0
+
+logging:
+  level:
+    com.callwise: DEBUG

@@ -1,0 +1,74 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${DB_NAME:-callwise}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-callwise}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - callwise-net
+
+  app:
+    build: .
+    image: callwise/voice-agent:latest
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Inside the compose network, Postgres is reachable as `postgres`
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-callwise}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      APP_PORT: ${APP_PORT:-8080}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_PHONE_NUMBER: ${TWILIO_PHONE_NUMBER:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    networks:
+      - callwise-net
+
+  # Public HTTPS tunnel for Twilio webhooks. The ngrok free tier auto-binds one
+  # persistent *.ngrok-free.dev domain per account, so the URL survives restarts
+  # without needing --domain. Override by adding "--domain=your-name.ngrok-free.app"
+  # if you've reserved a custom subdomain.
+  ngrok:
+    image: ngrok/ngrok:latest
+    restart: unless-stopped
+    command: ["http", "app:8080", "--log=stdout"]
+    environment:
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN:-}
+    ports:
+      - "4040:4040"   # ngrok inspector UI on http://localhost:4040
+    depends_on:
+      app:
+        condition: service_healthy
+    networks:
+      - callwise-net
+
+networks:
+  callwise-net:
+    driver: bridge
+
+volumes:
+  postgres-data:

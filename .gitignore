@@ -1,0 +1,50 @@
+### Java / Build artifacts ###
+target/
+*.class
+*.jar
+*.war
+*.ear
+*.nar
+hs_err_pid*
+replay_pid*
+
+# Keep the Gradle wrapper jar — required to bootstrap ./gradlew on a fresh clone
+!gradle/wrapper/gradle-wrapper.jar
+
+### IDE ###
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+.project
+.classpath
+.settings/
+.factorypath
+.claude/
+
+### OS ###
+.DS_Store
+Thumbs.db
+
+### Secrets ###
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+### Logs ###
+*.log
+logs/
+
+### Build / coverage ###
+build/
+out/
+.gradle/
+jacoco.exec
+coverage/
+
+### Docker ###
+postgres-data/
+

@@ -1,0 +1,326 @@
+{
+  "info": {
+    "name": "Callwise — Admin API",
+    "description": "Read-only operator endpoints for inspecting voice calls handled by the Callwise agent. No auth (CLAUDE.md trade-off — would sit behind Spring Security + API key in production). Set the `baseUrl`, `callSid`, and `technicianId` variables in the collection before sending requests.\n\n**Endpoints**\n- `GET /actuator/health` — Spring Boot liveness (powers the docker healthcheck)\n- `GET /admin/health` — Lightweight `{\"status\":\"UP\"}` for synthetic monitoring\n- `GET /admin/metrics` — Aggregate tokens, cost, by-provider rows\n- `GET /admin/calls` — Recent calls (newest first) — use this to find a callSid\n- `GET /admin/calls/{callSid}` — Per-call session row + full transcript + per-turn metrics + cost roll-up\n- `GET /admin/appointments` — Recent bookings — concrete outcome of calls that converted\n- `GET /admin/technicians` — Roster: each tech's ZIP coverage, appliance specialties, 14-day slot mix\n- `GET /admin/technicians/{id}/slots` — Day-by-day schedule for one tech, every slot with date/time/status",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080",
+      "description": "Local: http://localhost:8080  •  Live tunnel: https://<your-ngrok-domain>"
+    },
+    {
+      "key": "callSid",
+      "value": "CA00000000000000000000000000000000",
+      "description": "Twilio call SID — find one via GET /admin/calls"
+    },
+    {
+      "key": "technicianId",
+      "value": "1",
+      "description": "Technician id — find one via GET /admin/technicians"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Spring Boot actuator health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/actuator/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["actuator", "health"]
+            },
+            "description": "Spring Boot's actuator liveness probe — used by the docker healthcheck. Returns `{\"status\":\"UP\"}` along with sub-component status (db, diskSpace, ping) when components are exposed."
+          },
+          "response": []
+        },
+        {
+          "name": "Admin health (lightweight)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "health"]
+            },
+            "description": "Minimal `{\"status\":\"UP\"}` for synthetic monitors that just need a 200 + small body. Distinct from `/actuator/health` so the healthcheck path isn't conflated with operator probes."
+          },
+          "response": [
+            {
+              "name": "200 UP",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/admin/health",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["admin", "health"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": \"UP\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Metrics",
+      "item": [
+        {
+          "name": "Aggregate metrics (all calls)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/metrics",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "metrics"]
+            },
+            "description": "Cumulative token spend and cost across every AI call ever recorded, plus a per-provider breakdown (claude vs groq). Cost is computed from the per-provider rate card in `ObservabilityService`."
+          },
+          "response": [
+            {
+              "name": "200 — example aggregate",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/admin/metrics",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["admin", "metrics"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"total_tokens\": 18420,\n  \"total_cost_usd\": 0.0734,\n  \"by_provider\": [\n    { \"provider\": \"claude\", \"calls\": 42, \"input_tokens\": 14000, \"output_tokens\": 3800, \"cost_usd\": 0.0680 },\n    { \"provider\": \"groq\",   \"calls\": 3,  \"input_tokens\": 520,   \"output_tokens\": 100,  \"cost_usd\": 0.0054 }\n  ]\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Per-Call Inspection",
+      "item": [
+        {
+          "name": "List recent calls",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/calls?limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "calls"],
+              "query": [
+                { "key": "limit", "value": "20", "description": "Max rows to return (1–100, default 20)" }
+              ]
+            },
+            "description": "Newest-first list of `call_session` rows. Each entry carries the `callSid`, phone number, status, appliance (if classified during the call), and start/end timestamps. Use the `callSid` from this list as the `callSid` collection variable when calling **Get call by callSid**.\n\n**Tip:** an `ACTIVE` status row with `endedAt: null` is a call still in progress."
+          },
+          "response": [
+            {
+              "name": "200 — example list",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/admin/calls?limit=2",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["admin", "calls"],
+                  "query": [{ "key": "limit", "value": "2" }]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "[\n  {\n    \"callSid\": \"CA8881dd285fa89bb8d455b72b7ad4d41d\",\n    \"phoneNumber\": \"+18148134156\",\n    \"status\": \"COMPLETED\",\n    \"applianceType\": \"refrigerator\",\n    \"startedAt\": \"2026-05-01T21:20:50.719Z\",\n    \"endedAt\": \"2026-05-01T21:24:18.011Z\"\n  },\n  {\n    \"callSid\": \"CA406c4d279028f9d6230b31c1277b8b3e\",\n    \"phoneNumber\": \"+18148134156\",\n    \"status\": \"COMPLETED\",\n    \"applianceType\": \"washer\",\n    \"startedAt\": \"2026-05-01T21:09:14.071Z\",\n    \"endedAt\": \"2026-05-01T21:11:42.220Z\"\n  }\n]"
+            }
+          ]
+        },
+        {
+          "name": "Get call by callSid",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/calls/{{callSid}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "calls", "{{callSid}}"]
+            },
+            "description": "Full inspection view for one call: the `call_session` row, totals (input/output tokens, cost), the conversation transcript ordered by turn, and the per-turn `call_metrics` rows (latency, provider used, success/failure). Returns 404 if the callSid doesn't exist.\n\n**Tip:** to find a recent callSid:\n```bash\ndocker compose exec postgres psql -U postgres -d callwise \\\n  -c \"select call_sid, status, created_at from call_session order by created_at desc limit 5;\"\n```"
+          },
+          "response": [
+            {
+              "name": "200 — example call view (truncated)",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/admin/calls/{{callSid}}",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["admin", "calls", "{{callSid}}"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"session\": {\n    \"id\": 12,\n    \"callSid\": \"CA8881dd285fa89bb8d455b72b7ad4d41d\",\n    \"phoneNumber\": \"+18148134156\",\n    \"status\": \"COMPLETED\",\n    \"createdAt\": \"2026-05-01T21:21:30Z\",\n    \"updatedAt\": \"2026-05-01T21:24:18Z\"\n  },\n  \"totals\": {\n    \"input_tokens\": 1840,\n    \"output_tokens\": 312,\n    \"cost_usd\": 0.0093\n  },\n  \"transcript\": [\n    { \"turnNumber\": 1, \"role\": \"USER\",      \"content\": \"My fridge isn't cooling.\" },\n    { \"turnNumber\": 1, \"role\": \"ASSISTANT\", \"content\": \"I'm sorry to hear that — when did it start?\" }\n  ],\n  \"metrics\": [\n    { \"turnNumber\": 1, \"provider\": \"claude\", \"latencyMs\": 957, \"inputTokens\": 420, \"outputTokens\": 64, \"costUsd\": 0.0021, \"success\": true }\n  ]\n}"
+            },
+            {
+              "name": "404 — unknown callSid",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/admin/calls/{{callSid}}",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["admin", "calls", "{{callSid}}"]
+                }
+              },
+              "status": "Not Found",
+              "code": 404,
+              "header": [],
+              "body": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Technicians",
+      "item": [
+        {
+          "name": "List technicians (roster)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/technicians",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "technicians"]
+            },
+            "description": "Full technician roster — every tech on file with the ZIP codes they cover, the appliance specialties they handle (with skill level), and a 14-day summary of their slot inventory (available vs. booked). Pick a `technicianId` from this list and call **Get technician schedule** to drill into their day-by-day calendar."
+          },
+          "response": [
+            {
+              "name": "200 — example roster (truncated)",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/admin/technicians",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["admin", "technicians"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "[\n  {\n    \"id\": 1,\n    \"name\": \"John Smith\",\n    \"email\": \"john.smith@callwise.demo\",\n    \"phone\": \"+13125551001\",\n    \"active\": true,\n    \"employedSince\": \"2022-03-15\",\n    \"serviceAreas\": [\"60173\", \"60601\"],\n    \"specialties\": [\n      { \"applianceType\": \"washer\", \"skillLevel\": \"STANDARD\" },\n      { \"applianceType\": \"dryer\",  \"skillLevel\": \"STANDARD\" }\n    ],\n    \"slotSummary\": {\n      \"lookaheadDays\": 14,\n      \"available\": 36,\n      \"booked\": 0\n    }\n  }\n]"
+            }
+          ]
+        },
+        {
+          "name": "Get technician schedule",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/technicians/{{technicianId}}/slots?days=14",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "technicians", "{{technicianId}}", "slots"],
+              "query": [
+                { "key": "days", "value": "14", "description": "Lookahead window in days (1–60, default 14)" }
+              ]
+            },
+            "description": "Day-by-day schedule for one technician — every slot in the lookahead window with date, start/end time, and status (`AVAILABLE` / `BOOKED`). Use after picking an `id` from **List technicians**. Returns 404 if the id doesn't exist."
+          },
+          "response": [
+            {
+              "name": "200 — example schedule (truncated)",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/admin/technicians/{{technicianId}}/slots?days=2",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["admin", "technicians", "{{technicianId}}", "slots"],
+                  "query": [{ "key": "days", "value": "2" }]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"technicianId\": 1,\n  \"technicianName\": \"John Smith\",\n  \"from\": \"2026-05-01\",\n  \"to\": \"2026-05-03\",\n  \"slots\": [\n    { \"id\": 1, \"date\": \"2026-05-01\", \"startTime\": \"09:00:00\", \"endTime\": \"11:00:00\", \"status\": \"AVAILABLE\" },\n    { \"id\": 2, \"date\": \"2026-05-01\", \"startTime\": \"11:00:00\", \"endTime\": \"13:00:00\", \"status\": \"BOOKED\"   }\n  ]\n}"
+            },
+            {
+              "name": "404 — unknown technicianId",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/admin/technicians/{{technicianId}}/slots",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["admin", "technicians", "{{technicianId}}", "slots"]
+                }
+              },
+              "status": "Not Found",
+              "code": 404,
+              "header": [],
+              "body": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Appointments",
+      "item": [
+        {
+          "name": "List recent appointments",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/appointments?limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "appointments"],
+              "query": [
+                { "key": "limit", "value": "20", "description": "Max rows to return (1–100, default 20)" }
+              ]
+            },
+            "description": "Newest-first list of `appointment` rows — the bookings actually written by `SchedulingService.bookAppointment` (under `SELECT … FOR UPDATE`). Each entry carries the originating `callSid` so you can trace any booking back to the conversation that produced it via **Get call by callSid**."
+          },
+          "response": [
+            {
+              "name": "200 — example list",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/admin/appointments?limit=2",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["admin", "appointments"],
+                  "query": [{ "key": "limit", "value": "2" }]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "[\n  {\n    \"id\": 7,\n    \"callSid\": \"CA8881dd285fa89bb8d455b72b7ad4d41d\",\n    \"customerName\": \"Jane Doe\",\n    \"customerPhone\": \"+18148134156\",\n    \"applianceType\": \"refrigerator\",\n    \"problemSummary\": \"Not cooling — compressor noise\",\n    \"status\": \"BOOKED\",\n    \"createdAt\": \"2026-05-01T21:23:42.001Z\"\n  }\n]"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

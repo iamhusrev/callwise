@@ -1,0 +1,78 @@
+spring:
+  application:
+    name: callwise-voice-agent
+
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:callwise}
+    username: ${DB_USER:postgres}
+    password: ${DB_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 5000
+
+  jpa:
+    hibernate:
+      ddl-auto: validate          # Liquibase owns the schema; JPA only validates
+    properties:
+      hibernate:
+        jdbc.time_zone: UTC
+        format_sql: true
+    open-in-view: false           # Avoid lazy loading in controllers
+
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.yaml
+    enabled: true
+
+server:
+  port: ${APP_PORT:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: when-authorized
+
+# AI providers
+anthropic:
+  api-key: ${ANTHROPIC_API_KEY:}
+  base-url: https://api.anthropic.com
+  model: claude-haiku-4-5
+  version: "2023-06-01"
+  timeout-ms: 8000
+  max-tokens: 1024
+
+groq:
+  api-key: ${GROQ_API_KEY:}
+  base-url: https://api.groq.com/openai/v1
+  model: llama-3.3-70b-versatile
+  timeout-ms: 8000
+  max-tokens: 1024
+
+# Twilio (used at submission time; SDK creds optional for outbound)
+twilio:
+  account-sid: ${TWILIO_ACCOUNT_SID:}
+  auth-token: ${TWILIO_AUTH_TOKEN:}
+  phone-number: ${TWILIO_PHONE_NUMBER:}
+
+# Conversation behavior knobs (Phase 7 polish)
+conversation:
+  max-turns: 30
+  max-silent-attempts: 3
+  max-tool-iterations: 3
+  human-transfer-keywords:
+    - operator
+    - human
+    - person
+    - manager
+    - representative
+
+logging:
+  level:
+    root: ${LOG_LEVEL:INFO}
+    com.callwise: ${LOG_LEVEL:INFO}
+    org.hibernate.SQL: WARN

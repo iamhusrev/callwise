@@ -1,0 +1,308 @@
+databaseChangeLog:
+
+  - changeSet:
+      id: 003-technicians
+      author: ahmet
+      changes:
+        - createTable:
+            tableName: technicians
+            columns:
+              - column:
+                  name: id
+                  type: BIGSERIAL
+                  constraints: { primaryKey: true, nullable: false }
+              - column:
+                  name: name
+                  type: VARCHAR(100)
+                  constraints: { nullable: false }
+              - column:
+                  name: email
+                  type: VARCHAR(100)
+                  constraints: { unique: true }
+              - column:
+                  name: phone
+                  type: VARCHAR(32)
+              - column:
+                  name: employed_since
+                  type: DATE
+              - column:
+                  name: active
+                  type: BOOLEAN
+                  defaultValueBoolean: true
+                  constraints: { nullable: false }
+              - column:
+                  name: created_at
+                  type: TIMESTAMPTZ
+                  defaultValueComputed: NOW()
+                  constraints: { nullable: false }
+              - column:
+                  name: updated_at
+                  type: TIMESTAMPTZ
+                  defaultValueComputed: NOW()
+                  constraints: { nullable: false }
+      rollback:
+        - dropTable: { tableName: technicians }
+
+  - changeSet:
+      id: 003-service-areas
+      author: ahmet
+      changes:
+        - createTable:
+            tableName: service_areas
+            columns:
+              - column:
+                  name: id
+                  type: BIGSERIAL
+                  constraints: { primaryKey: true, nullable: false }
+              - column:
+                  name: technician_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                    foreignKeyName: fk_service_areas_technician
+                    references: technicians(id)
+              - column:
+                  name: zip_code
+                  type: VARCHAR(10)
+                  constraints: { nullable: false }
+              - column:
+                  name: created_at
+                  type: TIMESTAMPTZ
+                  defaultValueComputed: NOW()
+                  constraints: { nullable: false }
+        - addUniqueConstraint:
+            tableName: service_areas
+            columnNames: technician_id, zip_code
+            constraintName: uq_service_areas_tech_zip
+        - createIndex:
+            tableName: service_areas
+            indexName: idx_service_areas_zip
+            columns: [{ column: { name: zip_code } }]
+      rollback:
+        - dropTable: { tableName: service_areas }
+
+  - changeSet:
+      id: 003-specialties
+      author: ahmet
+      changes:
+        - createTable:
+            tableName: specialties
+            columns:
+              - column:
+                  name: id
+                  type: BIGSERIAL
+                  constraints: { primaryKey: true, nullable: false }
+              - column:
+                  name: technician_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                    foreignKeyName: fk_specialties_technician
+                    references: technicians(id)
+              - column:
+                  name: appliance_type
+                  type: VARCHAR(50)
+                  constraints: { nullable: false }
+              - column:
+                  name: skill_level
+                  type: VARCHAR(20)
+                  defaultValue: STANDARD
+        - addUniqueConstraint:
+            tableName: specialties
+            columnNames: technician_id, appliance_type
+            constraintName: uq_specialties_tech_appliance
+        - createIndex:
+            tableName: specialties
+            indexName: idx_specialties_appliance_tech
+            columns:
+              - column: { name: appliance_type }
+              - column: { name: technician_id }
+      rollback:
+        - dropTable: { tableName: specialties }
+
+  - changeSet:
+      id: 003-availability-slots
+      author: ahmet
+      changes:
+        - createTable:
+            tableName: availability_slots
+            columns:
+              - column:
+                  name: id
+                  type: BIGSERIAL
+                  constraints: { primaryKey: true, nullable: false }
+              - column:
+                  name: technician_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                    foreignKeyName: fk_availability_slots_technician
+                    references: technicians(id)
+              - column:
+                  name: slot_date
+                  type: DATE
+                  constraints: { nullable: false }
+              - column:
+                  name: start_time
+                  type: TIME
+                  constraints: { nullable: false }
+              - column:
+                  name: end_time
+                  type: TIME
+                  constraints: { nullable: false }
+              - column:
+                  name: status
+                  type: VARCHAR(20)
+                  defaultValue: AVAILABLE
+                  constraints: { nullable: false }
+              - column:
+                  name: created_at
+                  type: TIMESTAMPTZ
+                  defaultValueComputed: NOW()
+                  constraints: { nullable: false }
+              - column:
+                  name: updated_at
+                  type: TIMESTAMPTZ
+                  defaultValueComputed: NOW()
+                  constraints: { nullable: false }
+        - createIndex:
+            tableName: availability_slots
+            indexName: idx_availability_tech_date
+            columns:
+              - column: { name: technician_id }
+              - column: { name: slot_date }
+        - createIndex:
+            tableName: availability_slots
+            indexName: idx_availability_date_status
+            columns:
+              - column: { name: slot_date }
+              - column: { name: status }
+      rollback:
+        - dropTable: { tableName: availability_slots }
+
+  - changeSet:
+      id: 003-appointments
+      author: ahmet
+      changes:
+        - createTable:
+            tableName: appointments
+            columns:
+              - column:
+                  name: id
+                  type: BIGSERIAL
+                  constraints: { primaryKey: true, nullable: false }
+              - column:
+                  name: call_session_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                    foreignKeyName: fk_appointments_session
+                    references: call_sessions(id)
+              - column:
+                  name: technician_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                    foreignKeyName: fk_appointments_technician
+                    references: technicians(id)
+              - column:
+                  name: availability_slot_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                    foreignKeyName: fk_appointments_slot
+                    references: availability_slots(id)
+              - column:
+                  name: customer_name
+                  type: VARCHAR(100)
+                  constraints: { nullable: false }
+              - column:
+                  name: customer_phone
+                  type: VARCHAR(32)
+              - column:
+                  name: customer_address
+                  type: TEXT
+              - column:
+                  name: appliance_type
+                  type: VARCHAR(50)
+              - column:
+                  name: problem_summary
+                  type: TEXT
+              - column:
+                  name: status
+                  type: VARCHAR(20)
+                  defaultValue: CONFIRMED
+                  constraints: { nullable: false }
+              - column:
+                  name: created_at
+                  type: TIMESTAMPTZ
+                  defaultValueComputed: NOW()
+                  constraints: { nullable: false }
+              - column:
+                  name: updated_at
+                  type: TIMESTAMPTZ
+                  defaultValueComputed: NOW()
+                  constraints: { nullable: false }
+        - createIndex:
+            tableName: appointments
+            indexName: idx_appointments_session
+            columns: [{ column: { name: call_session_id } }]
+      rollback:
+        - dropTable: { tableName: appointments }
+
+  - changeSet:
+      id: 003-call-metrics
+      author: ahmet
+      changes:
+        - createTable:
+            tableName: call_metrics
+            columns:
+              - column:
+                  name: id
+                  type: BIGSERIAL
+                  constraints: { primaryKey: true, nullable: false }
+              - column:
+                  name: call_session_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                    foreignKeyName: fk_call_metrics_session
+                    references: call_sessions(id)
+              - column:
+                  name: turn_number
+                  type: INT
+              - column:
+                  name: provider
+                  type: VARCHAR(20)
+              - column:
+                  name: latency_ms
+                  type: INT
+              - column:
+                  name: input_tokens
+                  type: INT
+              - column:
+                  name: output_tokens
+                  type: INT
+              - column:
+                  name: cost_usd
+                  type: NUMERIC(10, 6)
+              - column:
+                  name: success
+                  type: BOOLEAN
+                  defaultValueBoolean: true
+              - column:
+                  name: error_message
+                  type: TEXT
+              - column:
+                  name: created_at
+                  type: TIMESTAMPTZ
+                  defaultValueComputed: NOW()
+                  constraints: { nullable: false }
+        - createIndex:
+            tableName: call_metrics
+            indexName: idx_call_metrics_session_turn
+            columns:
+              - column: { name: call_session_id }
+              - column: { name: turn_number }
+      rollback:
+        - dropTable: { tableName: call_metrics }

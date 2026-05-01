@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+    <!-- Production / default profile: structured JSON for log aggregators (ELK, Loki, Datadog) -->
+    <springProfile name="!test">
+        <appender name="JSON" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+                <!-- MDC fields the orchestrator + observability service set per-turn -->
+                <includeMdcKeyName>callSid</includeMdcKeyName>
+                <includeMdcKeyName>turnNumber</includeMdcKeyName>
+                <includeMdcKeyName>provider</includeMdcKeyName>
+                <customFields>{"app":"callwise"}</customFields>
+            </encoder>
+        </appender>
+
+        <root level="INFO">
+            <appender-ref ref="JSON"/>
+        </root>
+
+        <!-- App package noisier in dev; SQL kept warn so test/prod logs aren't flooded -->
+        <logger name="com.callwise" level="${LOG_LEVEL:-INFO}"/>
+        <logger name="org.hibernate.SQL" level="WARN"/>
+    </springProfile>
+
+    <!-- Test profile: human-readable single-line for IDE / CI output -->
+    <springProfile name="test">
+        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder>
+                <pattern>%d{HH:mm:ss.SSS} %-5level [%X{callSid:-}/%X{turnNumber:-}] %logger{36} - %msg%n</pattern>
+            </encoder>
+        </appender>
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+        <logger name="com.callwise" level="DEBUG"/>
+    </springProfile>
+
+</configuration>

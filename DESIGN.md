@@ -4,9 +4,9 @@ A short, opinionated walkthrough of the architectural choices and the trade-offs
 
 ## Goals
 
-Tier 1 + Tier 2 of the SHS take-home, end-to-end: an inbound call agent that diagnoses appliance issues, walks the caller through troubleshooting, and books a technician visit. Tier 3 (visual diagnosis) is intentionally out of scope for the initial submission; the architecture leaves a clear seam for it (see *Tier 3 readiness* below).
+Tier 1 + Tier 2 of the SHS take-home, end-to-end: an inbound call agent that diagnoses appliance issues, walks the caller through troubleshooting, and books a technician visit. **Tier 3 (visual diagnosis) is being built on the `tier-3` branch** — design rationale lives in that branch's DESIGN.md and a follow-up email will cover it.
 
-Implicit non-goals: production-grade auth, horizontal scale, custom CV models, Polly-grade voice prosody. Each is called out below where it changed a decision.
+Implicit non-goals on `main`: production-grade auth, horizontal scale, custom CV models, Polly-grade voice prosody. Each is called out below where it changed a decision.
 
 ## Stack at a Glance
 
@@ -16,7 +16,7 @@ Implicit non-goals: production-grade auth, horizontal scale, custom CV models, P
 | LLM primary  | **Claude Haiku 4.5**                  | Voice latency dominates UX; Haiku is fast, supports native `tool_use`, and Anthropic's prompt caching makes the system prompt cheap.    |
 | LLM fallback | **Groq Llama 3.3 70B**                | LPU inference (~500 tok/s) and provider diversity. If Anthropic has an outage, the call still completes.                                |
 | Backend      | **Spring Boot 3.5 + Java 21 (sync)**  | Plays to my strength; voice latency is dominated by AI not I/O, so reactive buys little while costing debug ergonomics.                 |
-| Build        | **Gradle Kotlin DSL**                 | Type-safe, modern. Migrated from Maven for a cleaner build script.                                                                      |
+| Build        | **Gradle Kotlin DSL**                 | Type-safe build script with first-class IDE support; one-line override for the testcontainers / docker-java versions when needed.       |
 | DB           | **PostgreSQL 16**                     | `SELECT … FOR UPDATE` for safe slot booking; durable session/transcript storage; rich SQL for admin reports.                            |
 | Migrations   | **Liquibase**                         | YAML, declarative, immutable changesets, native rollback support.                                                                       |
 | Tunnel       | **ngrok (auto-bound free domain)**    | Twilio webhook needs a public HTTPS URL. The free tier binds one persistent `*.ngrok-free.dev` domain per account, so the webhook URL is set once and survives `docker compose down/up`. |
@@ -26,11 +26,11 @@ Implicit non-goals: production-grade auth, horizontal scale, custom CV models, P
 
 ## Multi-provider AI
 
-`ChatProvider` is the seam (Strategy). `BaseProvider` (Template Method) wraps every concrete provider with the same circuit-breaker check and latency timing — so adding a third provider means writing the wire-format adapter and registering it in `AIDispatcher`. CLAUDE.md has this as a hard rule because vendor lock-in on the LLM is unacceptable in production.
+`ChatProvider` is the seam (Strategy). `ClaudeProvider` and `GroqProvider` (Adapter) translate the same `ChatRequest`/`ChatResponse` records into each vendor's wire format; `BaseProvider` is a thin shared helper for nanosecond-accurate latency timing. Adding a third provider means writing the wire-format adapter and wiring it into `AIDispatcher` — no callsite changes elsewhere.
 
-The dispatcher (`AIDispatcher`) is a Facade: callers see one method, internally it does primary → fallback with explicit logging events for each transition. Failure is communicated via `AllProvidersFailedException`, which `GlobalExceptionHandler` turns into graceful TwiML so Twilio doesn't drop the call on a non-XML response.
+`AIDispatcher` (Facade) owns the primary → fallback decision and the circuit-breaker bookkeeping: every call goes through `circuitBreaker.allowRequest(name)` before hitting a provider, every outcome calls `recordSuccess`/`recordFailure`, and each state transition emits a structured log event (`dispatcher.primary-circuit-open`, `dispatcher.primary-failed`, `dispatcher.fallback-circuit-open`, `dispatcher.fallback-failed`). When both providers are unavailable, `AllProvidersFailedException` is raised; `GlobalExceptionHandler` translates it into a graceful TwiML hangup so Twilio plays the apology and ends the call cleanly instead of dropping on non-XML.
 
-`CircuitBreaker` is in-memory and per-provider. The state machine (CLOSED → 3 failures → OPEN → 30 s → HALF_OPEN) is implemented in ~50 lines of state, instead of pulling Resilience4j. Production deployments would swap to Resilience4j; this is an explicit scope-limited choice.
+`CircuitBreaker` is in-memory and per-provider — `FAILURE_THRESHOLD = 3`, `OPEN_DURATION = 30s`, single-probe HALF_OPEN, hand-rolled instead of pulling Resilience4j. The trade-off is explicit: per-instance state is fine for a single-pod take-home; a multi-replica deployment would migrate to Resilience4j with shared state.
 
 ## Conversation State
 
@@ -60,38 +60,15 @@ No UI by design — CLAUDE.md trade-off. Three pieces:
 
 ## Resilience Budget
 
-Twilio drops the call if the webhook doesn't return inside ~10 s. The budget:
+Twilio drops the call if the webhook doesn't return inside ~10 s. AI HTTP timeout is 8 s, DB reads/writes typically <50 ms, `@Async` metrics persist is off the critical path, and the circuit breaker fail-fasts when a provider is OPEN. Worst case (both providers down), `GlobalExceptionHandler` returns a "please call back" TwiML so Twilio hangs up gracefully instead of dropping the line.
 
-- AI HTTP timeout: **8 s** (set in `application.yml`)
-- DB queries (read history, write turn): typically <50 ms
-- `@Async` metrics insert is off the critical path
-- Circuit breaker fail-fast: when OPEN, dispatcher returns immediately to the fallback path
+## Out of Scope (deferred deliberately)
 
-Worst case (both providers down), `GlobalExceptionHandler` returns a "please call back" TwiML — Twilio plays it and hangs up gracefully.
+- **Auth on `/admin/*`** — Spring Security + API key in production; take-home reviewability wins here.
+- **Outbound calls** — agent only receives. Reminders / re-engagement are a Twilio Calls API away.
+- **Distributed tracing** — `callSid` in MDC already gives per-call tracing; OpenTelemetry would be the next step at scale.
 
-## Out of Scope (and why)
+## Tier 3 (Visual Diagnosis)
 
-- **Tier 3 visual diagnosis** — the planning doc has the design (new `image_upload` table, `RequestImageTool`, Claude Vision via `ChatRequest.imageUrls`), but implementation is queued. Not blocking the take-home.
-- **Auth on `/admin/*`** — would be Spring Security + an API key in production. Take-home scope.
-- **Outbound calls** — the agent only receives. Outbound (e.g., reminding a customer their appointment was booked) is a Twilio Calls API call away.
-- **Custom CV / Polly-grade voice** — both are one-line config changes. Defer until the basic UX is right.
-- **Distributed tracing** — `callSid` MDC effectively gives per-call tracing; no need for OpenTelemetry yet.
+Implemented on the `tier-3` branch — `Message` carries an optional `imageUrls` field, `ClaudeProvider` emits content blocks when images are present, two new tools (`request_image`, `poll_image_status`) auto-discover into `ToolRegistry` with zero orchestrator changes, and a new Liquibase changeset adds the `image_uploads` table with token + email + JSONB vision result. Branch's own DESIGN.md walks through the upload flow, vision JSON schema, and TTL/cleanup choices; the follow-up email will link it and the merged PR.
 
-## Tier 3 Readiness
-
-The architecture has the seams already:
-
-- `ChatRequest` can grow an `imageUrls` field without breaking either provider.
-- A new `RequestImageTool` registered in `ToolRegistry` requires zero orchestrator changes (Plugin pattern).
-- A new Liquibase changeset adds `image_upload` (id, call_session_id, token, email, status, image_path, vision_result, expires_at).
-- A `PUBLIC_BASE_URL` env var would carry the upload-link host into the tool — trivial addition.
-
-Estimated 1 focused day to build Tier 3 on top of the current shape.
-
-## Things I'd Change at Production Scale
-
-- Resilience4j replaces the in-memory circuit breaker (per-instance state isn't ideal across replicas).
-- Spring Security on `/admin/*` + per-API-key rate limiting.
-- Per-tenant data isolation if Sears wanted multi-line-of-business deployments — `call_session_id` is already the lead column on indexes, so the sharding path is straightforward.
-- A `prompt-version` column on `call_metrics` for A/B testing prompt changes against cost/quality.
-- Switch Twilio's `<Say>` voice to Polly (one-line config) for better prosody.

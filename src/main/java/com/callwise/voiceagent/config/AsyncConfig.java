@@ -28,4 +28,21 @@ public class AsyncConfig {
         executor.initialize();
         return executor;
     }
+
+    /**
+     * Tier 3: dedicated pool for vision analysis. Vision calls are slow (1-5s) and we don't
+     * want them queueing behind sub-millisecond metric inserts on the same executor.
+     */
+    @Bean(name = "visionExecutor")
+    public Executor visionExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(4);
+        executor.setQueueCapacity(64);
+        executor.setThreadNamePrefix("vision-");
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(15);
+        executor.initialize();
+        return executor;
+    }
 }

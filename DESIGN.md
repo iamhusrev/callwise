@@ -70,5 +70,26 @@ Twilio drops the call if the webhook doesn't return inside ~10 s. AI HTTP timeou
 
 ## Tier 3 (Visual Diagnosis)
 
-Implemented on the `tier-3` branch — `Message` carries an optional `imageUrls` field, `ClaudeProvider` emits content blocks when images are present, two new tools (`request_image`, `poll_image_status`) auto-discover into `ToolRegistry` with zero orchestrator changes, and a new Liquibase changeset adds the `image_uploads` table with token + email + JSONB vision result. Branch's own DESIGN.md walks through the upload flow, vision JSON schema, and TTL/cleanup choices; the follow-up email will link it and the merged PR.
+Shipped on this branch (`tier-3`). Five integration points:
+
+1. **Provider abstraction extended, not bypassed.** `ChatRequest` gains an optional `images: List<ImageContent>` (default empty), where `ImageContent` is a provider-agnostic `(mediaType, base64Data)` record. `ClaudeProvider` and `GroqProvider` each detect the non-empty list, switch to their configured vision-capable model id, and attach the image to the **last user message** in their native shape — Anthropic's `{type:"image", source:{type:"base64",...}}` content block, OpenAI/Groq's `{type:"image_url", image_url:{url:"data:image/...;base64,..."}}`. Existing text-only call sites use the 5-arg `ChatRequest` constructor and see no behaviour change.
+2. **`AIDispatcher.analyzeImage(bytes, mime)` reuses the chat path.** It builds a one-shot `ChatRequest` (no history, no tools, dedicated `prompts/vision-prompt.txt`) and calls `diagnose(...)` — circuit breaker, primary→fallback, observability, all free. Response is parsed against the prompt's three-line contract into a `VisionResult(applianceType, visibleIssues, suggestedNextStep, rawText, providerName)`.
+3. **`image_upload` table** (Liquibase 005) tracks the lifecycle: `PENDING → UPLOADED → ANALYZED | FAILED | EXPIRED`. `vision_result` is JSONB so the admin endpoints can pluck specific fields without a deserialisation round-trip. Indexed on `token` (public lookup) and `call_session_id` (per-call latest).
+4. **Two new function-calling tools** auto-discover via `ToolRegistry`. `request_image_upload({email, reason})` validates the email, creates the row, sends the link via `EmailService` (SMTP → MailHog locally), returns `{status:"sent", expires_in_minutes:30}`. `check_image_status({})` reads the latest `image_upload` row for the active session and returns `{status, vision: {appliance_type, visible_issues, suggested_next_step}, vision_provider}` once analysis completes — the AI weaves it into its next response. The system prompt was extended with one paragraph of guidance on when to use them; no orchestrator changes were needed.
+5. **Public upload endpoint** (`UploadController`, Thymeleaf views) at `/uploads/{token}`. Token is 24 random bytes from `SecureRandom`, base64-url-encoded — 192 bits of entropy. Single-use, 30-min TTL. MIME allow-list (`image/jpeg|png|webp`) + size cap enforced both at Spring multipart and inside `ImageUploadService`. After write, the service fires `analyzeAsync` on a dedicated `visionExecutor` pool (separate from `metricsExecutor` because vision calls take 1-5 s and shouldn't queue behind sub-millisecond metric inserts).
+
+### Trade-offs taken on Tier 3
+
+- **MailHog over SendGrid/SES.** The take-home runs locally; reviewers shouldn't need a third-party account. MailHog ships in compose, web UI on `:8025`, zero external dependency. Switching to a real SMTP provider is one `application.yml` change — `JavaMailSender` is already provider-agnostic.
+- **Local bind-mounted `./uploads/` over S3 / Supabase Storage.** Same reason: keep the demo self-contained. The path is configurable; production swap is changing `UPLOAD_DIR` (and rewriting the file-write block to a `S3Client.putObject` if needed). DB BYTEA was rejected — it would inflate the Postgres footprint and isn't a typical JPA pattern.
+- **Multi-provider Vision over single-provider.** Same `ChatProvider` abstraction the chat path uses. Anthropic outage during a call would otherwise leave Tier 3 dark. Groq's vision lineup is volatile, so the model id is configurable (`VISION_GROQ_MODEL`) instead of hard-coded.
+- **Polling tool over outbound Twilio call.** PDF said "send a link"; outbound call-back when the photo arrives is a nice-to-have and out of scope. The AI calls `check_image_status` on subsequent turns and gracefully degrades if the caller never uploads.
+- **Token-based URL over signed S3 URL.** No S3, so signed URLs aren't applicable; the random token is the secret. 192 bits + 30-min TTL + single-use is overkill for the threat model and that's intentional.
+
+### Out of scope on Tier 3 (deliberately)
+
+- **Image content moderation / virus scan.** Production would add a ClamAV step before vision. We accept the photo, scan never runs.
+- **PII retention policy.** Uploads sit on the bind mount until manually cleared. Production needs a TTL job + an audit trail of who viewed what.
+- **Outbound re-engagement call** when an upload arrives after hangup. Polling-only by design.
+- **Multi-image per token.** One image per upload row; the AI can request a second link if needed.
 

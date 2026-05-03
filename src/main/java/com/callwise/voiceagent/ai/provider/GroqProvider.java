@@ -2,6 +2,7 @@ package com.callwise.voiceagent.ai.provider;
 
 import com.callwise.voiceagent.ai.dto.ChatRequest;
 import com.callwise.voiceagent.ai.dto.ChatResponse;
+import com.callwise.voiceagent.ai.dto.ImageContent;
 import com.callwise.voiceagent.ai.dto.Message;
 import com.callwise.voiceagent.ai.dto.ToolCall;
 import com.callwise.voiceagent.ai.dto.ToolDefinition;
@@ -46,15 +47,18 @@ public class GroqProvider extends BaseProvider {
     private final RestClient groqRestClient;
     private final ObjectMapper objectMapper;
     private final String model;
+    private final String visionModel;
 
     public GroqProvider(
             @Qualifier("groqRestClient") RestClient groqRestClient,
             ObjectMapper objectMapper,
-            @Value("${groq.model:llama-3.3-70b-versatile}") String model
+            @Value("${groq.model:llama-3.3-70b-versatile}") String model,
+            @Value("${callwise.vision.groq-model:meta-llama/llama-4-scout-17b-16e-instruct}") String visionModel
     ) {
         this.groqRestClient = groqRestClient;
         this.objectMapper = objectMapper;
         this.model = model;
+        this.visionModel = visionModel;
     }
 
     @Override
@@ -96,7 +100,9 @@ public class GroqProvider extends BaseProvider {
 
     private Map<String, Object> buildRequestBody(ChatRequest request) {
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("model", model);
+        // Switch to a vision-capable Groq model when images are present. Groq's vision lineup
+        // changes more often than its text lineup, so the override is configurable.
+        body.put("model", request.hasImages() ? visionModel : model);
         body.put("temperature", request.temperature());
         body.put("max_tokens", request.maxTokens());
 
@@ -105,8 +111,11 @@ public class GroqProvider extends BaseProvider {
         if (request.systemPrompt() != null && !request.systemPrompt().isBlank()) {
             messages.add(Map.of("role", "system", "content", request.systemPrompt()));
         }
-        for (Message m : request.messages()) {
-            messages.add(mapOneMessage(m));
+        int lastUserIdx = lastIndexOfRole(request.messages(), "user");
+        for (int i = 0; i < request.messages().size(); i++) {
+            Message m = request.messages().get(i);
+            boolean attachImagesHere = i == lastUserIdx && request.hasImages();
+            messages.add(mapOneMessage(m, attachImagesHere ? request.images() : null));
         }
         body.put("messages", messages);
 
@@ -117,9 +126,26 @@ public class GroqProvider extends BaseProvider {
         return body;
     }
 
-    private Map<String, Object> mapOneMessage(Message m) {
+    private Map<String, Object> mapOneMessage(Message m, List<ImageContent> imagesForThisMessage) {
         return switch (m.role()) {
-            case "user" -> Map.of("role", "user", "content", m.content());
+            case "user" -> {
+                if (imagesForThisMessage != null && !imagesForThisMessage.isEmpty()) {
+                    // OpenAI multimodal shape: content becomes an array of typed parts.
+                    List<Map<String, Object>> parts = new ArrayList<>();
+                    if (m.content() != null && !m.content().isBlank()) {
+                        parts.add(Map.of("type", "text", "text", m.content()));
+                    }
+                    for (ImageContent img : imagesForThisMessage) {
+                        String dataUri = "data:" + img.mediaType() + ";base64," + img.base64Data();
+                        parts.add(Map.of(
+                                "type", "image_url",
+                                "image_url", Map.of("url", dataUri)
+                        ));
+                    }
+                    yield Map.of("role", "user", "content", parts);
+                }
+                yield Map.of("role", "user", "content", m.content());
+            }
             case "assistant" -> {
                 if (m.toolCalls() != null && !m.toolCalls().isEmpty()) {
                     List<Map<String, Object>> tcs = new ArrayList<>();
@@ -149,6 +175,13 @@ public class GroqProvider extends BaseProvider {
             );
             default -> throw new IllegalArgumentException("unsupported role: " + m.role());
         };
+    }
+
+    private static int lastIndexOfRole(List<Message> messages, String role) {
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            if (role.equals(messages.get(i).role())) return i;
+        }
+        return -1;
     }
 
     private List<Map<String, Object>> mapTools(List<ToolDefinition> tools) {

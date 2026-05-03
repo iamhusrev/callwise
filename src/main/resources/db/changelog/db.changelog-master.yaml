@@ -7,3 +7,5 @@ databaseChangeLog:
       file: db/changelog/changes/003-scheduling-schema.yaml
   - include:
       file: db/changelog/changes/004-seed-technicians.yaml
+  - include:
+      file: db/changelog/changes/005-image-upload-schema.yaml

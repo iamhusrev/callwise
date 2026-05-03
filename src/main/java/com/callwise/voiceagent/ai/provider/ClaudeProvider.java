@@ -2,6 +2,7 @@ package com.callwise.voiceagent.ai.provider;
 
 import com.callwise.voiceagent.ai.dto.ChatRequest;
 import com.callwise.voiceagent.ai.dto.ChatResponse;
+import com.callwise.voiceagent.ai.dto.ImageContent;
 import com.callwise.voiceagent.ai.dto.Message;
 import com.callwise.voiceagent.ai.dto.ToolCall;
 import com.callwise.voiceagent.ai.dto.ToolDefinition;
@@ -12,7 +13,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
@@ -20,8 +20,6 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 
 import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -49,15 +47,18 @@ public class ClaudeProvider extends BaseProvider {
     private final RestClient claudeRestClient;
     private final ObjectMapper objectMapper;
     private final String model;
+    private final String visionModel;
 
     public ClaudeProvider(
             @Qualifier("claudeRestClient") RestClient claudeRestClient,
             ObjectMapper objectMapper,
-            @Value("${anthropic.model:claude-haiku-4-5}") String model
+            @Value("${anthropic.model:claude-haiku-4-5}") String model,
+            @Value("${callwise.vision.claude-model:claude-haiku-4-5}") String visionModel
     ) {
         this.claudeRestClient = claudeRestClient;
         this.objectMapper = objectMapper;
         this.model = model;
+        this.visionModel = visionModel;
     }
 
     @Override
@@ -105,7 +106,10 @@ public class ClaudeProvider extends BaseProvider {
 
     private Map<String, Object> buildRequestBody(ChatRequest request) {
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("model", model);
+        // Switch to vision-capable model when images are attached. For Haiku 4.5 these are
+        // the same id, but isolating the override keeps the door open for older deployments
+        // where the chat model is text-only.
+        body.put("model", request.hasImages() ? visionModel : model);
         body.put("max_tokens", request.maxTokens());
         body.put("temperature", request.temperature());
 
@@ -120,7 +124,7 @@ public class ClaudeProvider extends BaseProvider {
             body.put("system", List.of(systemBlock));
         }
 
-        body.put("messages", mapMessages(request.messages()));
+        body.put("messages", mapMessages(request.messages(), request.images()));
 
         if (request.tools() != null && !request.tools().isEmpty()) {
             body.put("tools", mapTools(request.tools()));
@@ -128,11 +132,37 @@ public class ClaudeProvider extends BaseProvider {
         return body;
     }
 
-    private List<Map<String, Object>> mapMessages(List<Message> messages) {
+    private List<Map<String, Object>> mapMessages(List<Message> messages, List<ImageContent> images) {
         List<Map<String, Object>> out = new ArrayList<>(messages.size());
-        for (Message m : messages) {
+        // We attach images only to the LAST user message. Anthropic accepts multiple image
+        // blocks per message and merges them with the surrounding text — exactly what we want
+        // for "here is the photo, please describe it".
+        int lastUserIdx = lastIndexOfRole(messages, "user");
+
+        for (int i = 0; i < messages.size(); i++) {
+            Message m = messages.get(i);
             switch (m.role()) {
-                case "user" -> out.add(Map.of("role", "user", "content", m.content()));
+                case "user" -> {
+                    if (i == lastUserIdx && images != null && !images.isEmpty()) {
+                        List<Map<String, Object>> blocks = new ArrayList<>();
+                        for (ImageContent img : images) {
+                            blocks.add(Map.of(
+                                    "type", "image",
+                                    "source", Map.of(
+                                            "type", "base64",
+                                            "media_type", img.mediaType(),
+                                            "data", img.base64Data()
+                                    )
+                            ));
+                        }
+                        if (m.content() != null && !m.content().isBlank()) {
+                            blocks.add(Map.of("type", "text", "text", m.content()));
+                        }
+                        out.add(Map.of("role", "user", "content", blocks));
+                    } else {
+                        out.add(Map.of("role", "user", "content", m.content()));
+                    }
+                }
                 case "assistant" -> {
                     if (m.toolCalls() != null && !m.toolCalls().isEmpty()) {
                         // Replay an assistant turn that requested tools so Anthropic can match
@@ -166,6 +196,13 @@ public class ClaudeProvider extends BaseProvider {
             }
         }
         return out;
+    }
+
+    private static int lastIndexOfRole(List<Message> messages, String role) {
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            if (role.equals(messages.get(i).role())) return i;
+        }
+        return -1;
     }
 
     private List<Map<String, Object>> mapTools(List<ToolDefinition> tools) {

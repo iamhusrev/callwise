@@ -25,6 +25,27 @@ spring:
     change-log: classpath:db/changelog/db.changelog-master.yaml
     enabled: true
 
+  # Tier 3: SMTP transport. MailHog accepts unauthenticated plain SMTP — Spring's default
+  # auto-config will try STARTTLS unless we explicitly disable it here.
+  mail:
+    host: ${MAIL_HOST:localhost}
+    port: ${MAIL_PORT:1025}
+    properties:
+      mail:
+        smtp:
+          auth: false
+          starttls:
+            enable: false
+        transport:
+          protocol: smtp
+
+  # Tier 3: hard server-side cap on multipart upload size. Final guard runs in
+  # ImageUploadService against UPLOAD_MAX_BYTES (defence in depth).
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 11MB
+
 server:
   port: ${APP_PORT:8080}
 
@@ -52,6 +73,20 @@ groq:
   model: llama-3.3-70b-versatile
   timeout-ms: 8000
   max-tokens: 1024
+
+# Tier 3: vision (image analysis). Vision-capable model overrides per provider; Groq's
+# vision lineup churns frequently, so we expose it as a config key rather than hard-coding.
+callwise:
+  vision:
+    claude-model: ${VISION_CLAUDE_MODEL:claude-haiku-4-5}
+    groq-model: ${VISION_GROQ_MODEL:meta-llama/llama-4-scout-17b-16e-instruct}
+    max-tokens: 512
+  uploads:
+    dir: ${UPLOAD_DIR:./uploads}
+    max-bytes: ${UPLOAD_MAX_BYTES:10485760}
+    token-ttl-minutes: ${UPLOAD_TOKEN_TTL_MINUTES:30}
+    public-base-url: ${PUBLIC_BASE_URL:}
+    mail-from: ${MAIL_FROM:no-reply@callwise.local}
 
 # Twilio (used at submission time; SDK creds optional for outbound)
 twilio:

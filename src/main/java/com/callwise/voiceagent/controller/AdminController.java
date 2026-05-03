@@ -5,6 +5,7 @@ import com.callwise.voiceagent.entity.AvailabilitySlot;
 import com.callwise.voiceagent.entity.CallMetrics;
 import com.callwise.voiceagent.entity.CallSession;
 import com.callwise.voiceagent.entity.ConversationMessage;
+import com.callwise.voiceagent.entity.ImageUpload;
 import com.callwise.voiceagent.entity.ServiceArea;
 import com.callwise.voiceagent.entity.Specialty;
 import com.callwise.voiceagent.entity.Technician;
@@ -12,10 +13,13 @@ import com.callwise.voiceagent.repository.AppointmentRepository;
 import com.callwise.voiceagent.repository.AvailabilitySlotRepository;
 import com.callwise.voiceagent.repository.CallSessionRepository;
 import com.callwise.voiceagent.repository.ConversationMessageRepository;
+import com.callwise.voiceagent.repository.ImageUploadRepository;
 import com.callwise.voiceagent.repository.ServiceAreaRepository;
 import com.callwise.voiceagent.repository.SpecialtyRepository;
 import com.callwise.voiceagent.repository.TechnicianRepository;
 import com.callwise.voiceagent.service.ObservabilityService;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -59,7 +63,9 @@ public class AdminController {
     private final ServiceAreaRepository serviceAreaRepository;
     private final SpecialtyRepository specialtyRepository;
     private final AvailabilitySlotRepository availabilitySlotRepository;
+    private final ImageUploadRepository imageUploadRepository;
     private final ObservabilityService observability;
+    private final ObjectMapper objectMapper;
 
     public AdminController(
             CallSessionRepository sessionRepository,
@@ -69,7 +75,9 @@ public class AdminController {
             ServiceAreaRepository serviceAreaRepository,
             SpecialtyRepository specialtyRepository,
             AvailabilitySlotRepository availabilitySlotRepository,
-            ObservabilityService observability
+            ImageUploadRepository imageUploadRepository,
+            ObservabilityService observability,
+            ObjectMapper objectMapper
     ) {
         this.sessionRepository = sessionRepository;
         this.messageRepository = messageRepository;
@@ -78,7 +86,9 @@ public class AdminController {
         this.serviceAreaRepository = serviceAreaRepository;
         this.specialtyRepository = specialtyRepository;
         this.availabilitySlotRepository = availabilitySlotRepository;
+        this.imageUploadRepository = imageUploadRepository;
         this.observability = observability;
+        this.objectMapper = objectMapper;
     }
 
     /** Recent calls — newest first. Use this to find a callSid to drill into. */
@@ -221,6 +231,60 @@ public class AdminController {
     @GetMapping("/health")
     public Map<String, Object> health() {
         return Map.of("status", "UP");
+    }
+
+    /* ===== Tier 3 — image upload inspection ===== */
+
+    /**
+     * Inspect a single Tier 3 upload by its token. Returns the row (status, mime, paths,
+     * timestamps) plus the parsed vision_result so a reviewer can see exactly what the
+     * vision model said about the photo without running a {@code psql -c "select ..."}.
+     */
+    @GetMapping("/uploads/{token}")
+    public ResponseEntity<Map<String, Object>> getUpload(@PathVariable String token) {
+        return imageUploadRepository.findByToken(token)
+                .map(row -> ResponseEntity.ok(summariseUpload(row)))
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /**
+     * List all Tier 3 uploads for one call (newest first). Useful when the caller uploaded
+     * multiple photos in a single call, or to confirm the lifecycle (PENDING → ANALYZED).
+     */
+    @GetMapping("/calls/{callSid}/uploads")
+    public ResponseEntity<List<Map<String, Object>>> listUploadsForCall(@PathVariable String callSid) {
+        return sessionRepository.findByCallSid(callSid)
+                .map(session -> ResponseEntity.ok(
+                        imageUploadRepository.findByCallSessionIdOrderByCreatedAtDesc(session.getId()).stream()
+                                .map(this::summariseUpload)
+                                .toList()))
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    private Map<String, Object> summariseUpload(ImageUpload row) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", row.getId());
+        m.put("call_session_id", row.getCallSessionId());
+        m.put("token", row.getToken());
+        m.put("email", row.getEmail());
+        m.put("status", row.getStatus());
+        m.put("image_path", row.getImagePath());
+        m.put("image_mime_type", row.getImageMimeType());
+        m.put("vision_provider", row.getVisionProvider());
+        // Re-parse the JSONB string so the response is a real nested object, not an
+        // escaped JSON-in-JSON blob — much friendlier in Postman / browsers.
+        if (row.getVisionResult() != null && !row.getVisionResult().isBlank()) {
+            try {
+                JsonNode parsed = objectMapper.readTree(row.getVisionResult());
+                m.put("vision_result", parsed);
+            } catch (Exception e) {
+                m.put("vision_result_raw", row.getVisionResult());
+            }
+        }
+        m.put("created_at", row.getCreatedAt());
+        m.put("updated_at", row.getUpdatedAt());
+        m.put("expires_at", row.getExpiresAt());
+        return m;
     }
 
     /* ===== helpers ===== */

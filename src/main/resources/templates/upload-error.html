@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Upload link unavailable</title>
+    <style>
+        body { font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color: #1f2937; max-width: 480px; margin: 0 auto; padding: 24px; text-align: center; }
+        h2 { color: #0f172a; }
+        .x { color: #dc2626; font-size: 64px; line-height: 1; }
+    </style>
+</head>
+<body>
+<div class="x">&#9888;</div>
+<h2>This link can't be used</h2>
+<p th:text="${message}">The link is invalid or has expired.</p>
+<p>Please ask the agent on the call to send you a new link.</p>
+</body>
+</html>

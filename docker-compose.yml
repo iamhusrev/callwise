@@ -37,14 +37,38 @@ services:
       TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
       TWILIO_PHONE_NUMBER: ${TWILIO_PHONE_NUMBER:-}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # Tier 3: visual diagnosis
+      MAIL_HOST: ${MAIL_HOST:-mailhog}
+      MAIL_PORT: ${MAIL_PORT:-1025}
+      MAIL_FROM: ${MAIL_FROM:-no-reply@callwise.local}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+      UPLOAD_DIR: ${UPLOAD_DIR:-/app/uploads}
+      UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES:-10485760}
+      UPLOAD_TOKEN_TTL_MINUTES: ${UPLOAD_TOKEN_TTL_MINUTES:-30}
     ports:
       - "${APP_PORT:-8080}:8080"
+    volumes:
+      # Tier 3: persist uploaded photos on the host so reviewers can inspect them and
+      # restarts don't drop in-flight uploads.
+      - ./uploads:/app/uploads
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 6
       start_period: 30s
+    networks:
+      - callwise-net
+
+  # Tier 3: offline SMTP catcher. The app sends upload-link emails to mailhog:1025;
+  # reviewers open http://localhost:8025 to read them. Zero external dependency.
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: callwise-mailhog
+    restart: unless-stopped
+    ports:
+      - "${MAIL_PORT:-1025}:1025"   # SMTP
+      - "8025:8025"                  # Web UI
     networks:
       - callwise-net
 

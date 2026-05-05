@@ -2,7 +2,8 @@ package com.callwise.voiceagent.service;
 
 /**
  * Tier 3 — send an upload-link email to the caller. Implementation lives in
- * {@link SmtpEmailService} and talks to MailHog (offline) over plain SMTP.
+ * {@link SmtpEmailService} and talks to whatever SMTP server {@code spring.mail.*} is
+ * pointed at (Gmail by default; swap to Resend / SES / Mailgun via env vars).
  */
 public interface EmailService {
 

@@ -59,7 +59,7 @@ public class DevController {
     /**
      * Triggers the full Tier 3 email-link flow without needing Twilio + the AI loop.
      * Returns the generated token + link so you can drop the link straight into a browser
-     * if you don't want to click through MailHog.
+     * without waiting for the email to arrive.
      *
      * <p>Body: {@code { "email": "demo@example.com", "reason": "...", "callSid": "..." }}.
      * All fields optional — defaults provided so a bare {@code {}} works too.

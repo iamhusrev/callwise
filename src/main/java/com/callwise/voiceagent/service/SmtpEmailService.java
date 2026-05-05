@@ -17,9 +17,10 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 
 /**
- * Tier 3 — JavaMail-based SMTP sender. Talks to MailHog in dev, can talk to any SMTP server
- * in production by changing {@code spring.mail.*}. The HTML body is rendered with Thymeleaf;
- * a plain-text fallback is set so non-HTML mail clients still see the link.
+ * Tier 3 — JavaMail-based SMTP sender. Talks to whatever SMTP server {@code spring.mail.*}
+ * is configured with: Gmail (port 587, STARTTLS, App Password) by default; Resend, SES, or
+ * Mailgun by swapping host/port/credentials via env vars. The HTML body is rendered with
+ * Thymeleaf; a plain-text fallback is set so non-HTML mail clients still see the link.
  *
  * <p>Privacy: full recipient address is logged at DEBUG only. INFO logs surface a SHA-256
  * truncated fingerprint instead, matching CLAUDE.md's PII-logging rule.

@@ -25,17 +25,26 @@ spring:
     change-log: classpath:db/changelog/db.changelog-master.yaml
     enabled: true
 
-  # Tier 3: SMTP transport. MailHog accepts unauthenticated plain SMTP — Spring's default
-  # auto-config will try STARTTLS unless we explicitly disable it here.
+  # Tier 3: SMTP transport. Defaults target Gmail (smtp.gmail.com:587 with STARTTLS) so a
+  # remote reviewer's upload-link mail lands in their real inbox. MAIL_PASSWORD must be a
+  # Google App Password (generated at myaccount.google.com/apppasswords) — regular
+  # account passwords are rejected when 2FA is on. Swap host/port/auth flags via env to
+  # use Resend, SES, or another provider without touching this file.
   mail:
-    host: ${MAIL_HOST:localhost}
-    port: ${MAIL_PORT:1025}
+    host: ${MAIL_HOST:smtp.gmail.com}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
     properties:
       mail:
         smtp:
-          auth: false
+          auth: true
           starttls:
-            enable: false
+            enable: true
+            required: true
+          connectiontimeout: 5000
+          timeout: 5000
+          writetimeout: 5000
         transport:
           protocol: smtp
 

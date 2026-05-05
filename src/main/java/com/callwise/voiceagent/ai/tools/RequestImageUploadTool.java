@@ -96,9 +96,9 @@ public class RequestImageUploadTool implements Tool {
         ImageUpload row = uploadService.createPendingUpload(sessionId, email);
         String base = properties.getPublicBaseUrl();
         if (base == null || base.isBlank()) {
-            // Defensive default: a relative URL would resolve against MailHog's hostname when
-            // the recipient clicks from the MailHog inbox, producing a 404 on :8025. Fall back
-            // to an absolute localhost URL so dev/demo testing without ngrok still works.
+            // Fall back to absolute localhost so on-machine browser testing still works when
+            // PUBLIC_BASE_URL is unset. A relative URL would break the moment the recipient
+            // clicks the link from a real email client on a different host.
             base = "http://localhost:" + appPort;
             log.warn("request_image_upload: PUBLIC_BASE_URL not set — defaulting link base to {}. "
                     + "Set PUBLIC_BASE_URL in .env (use the ngrok URL for real Twilio calls).", base);

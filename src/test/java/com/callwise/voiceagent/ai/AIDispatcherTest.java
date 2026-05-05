@@ -47,7 +47,7 @@ class AIDispatcherTest {
         fallback = mock(GroqProvider.class);
         breaker = mock(CircuitBreaker.class);
         observability = mock(ObservabilityService.class);
-        dispatcher = new AIDispatcher(primary, fallback, breaker, observability);
+        dispatcher = new AIDispatcher(primary, fallback, breaker, observability, 512);
         when(primary.getName()).thenReturn("claude");
         when(fallback.getName()).thenReturn("groq");
         request = new ChatRequest(List.of(Message.user("hi")), "sys", List.of(), 0.2, 256);

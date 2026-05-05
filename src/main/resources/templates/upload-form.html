@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Upload appliance photo</title>
+    <style>
+        body { font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color: #1f2937; max-width: 480px; margin: 0 auto; padding: 24px; }
+        h2 { color: #0f172a; }
+        .card { border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; background: #f8fafc; }
+        button { background:#2563eb;color:#fff;padding:12px 20px;border:0;border-radius:6px;font-weight:bold;font-size:16px; }
+        input[type=file] { padding: 12px 0; }
+        .hint { color:#64748b; font-size: 13px; margin-top: 8px; }
+    </style>
+</head>
+<body>
+<div class="card">
+    <h2>Upload your appliance photo</h2>
+    <p>Sears Home Services — please upload one clear photo so our agent can help you faster.</p>
+    <form th:action="@{|/uploads/${token}|}" method="post" enctype="multipart/form-data">
+        <input type="file" name="file" accept="image/jpeg,image/png,image/webp" required>
+        <p>
+            <button type="submit">Upload</button>
+        </p>
+    </form>
+    <p class="hint">Accepted: JPG, PNG, WEBP. Max <span th:text="${maxMb}">10</span>&nbsp;MB.</p>
+</div>
+</body>
+</html>

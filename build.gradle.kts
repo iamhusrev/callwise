@@ -21,6 +21,7 @@ extra["twilioSdkVersion"] = "10.6.0"
 extra["logstashEncoderVersion"] = "7.4"
 extra["testcontainersVersion"] = "1.21.0"
 extra["wiremockVersion"] = "3.9.1"
+extra["greenmailVersion"] = "2.0.1"
 
 dependencies {
     // Web layer: REST controllers, Tomcat, Jackson
@@ -34,6 +35,12 @@ dependencies {
 
     // Bean Validation (jakarta.validation) for DTOs and request bodies
     implementation("org.springframework.boot:spring-boot-starter-validation")
+
+    // Tier 3: SMTP email send via JavaMailSender (MailHog locally)
+    implementation("org.springframework.boot:spring-boot-starter-mail")
+
+    // Tier 3: Thymeleaf for the upload form HTML page and the email body
+    implementation("org.springframework.boot:spring-boot-starter-thymeleaf")
 
     // Liquibase: schema migrations on startup
     implementation("org.liquibase:liquibase-core")
@@ -60,6 +67,9 @@ dependencies {
 
     // WireMock: stub Anthropic / Groq HTTP in unit + integration tests
     testImplementation("org.wiremock:wiremock-standalone:${property("wiremockVersion")}")
+
+    // GreenMail: in-process SMTP server for SmtpEmailService tests
+    testImplementation("com.icegreen:greenmail-junit5:${property("greenmailVersion")}")
 }
 
 tasks.withType<Test> {

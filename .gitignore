@@ -48,3 +48,6 @@ coverage/
 ### Docker ###
 postgres-data/
 
+### Tier 3 — local image uploads bind-mount ###
+uploads/
+

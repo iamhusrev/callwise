@@ -8,6 +8,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.Map;
 
@@ -37,6 +38,17 @@ public class GlobalExceptionHandler {
         return ResponseEntity.ok()
                 .contentType(MediaType.APPLICATION_XML)
                 .body(twiml);
+    }
+
+    /**
+     * Browsers automatically request /favicon.ico on every page load, and other crawlers
+     * probe paths we don't own. These are routine 404s, not application errors — return an
+     * empty 404 and demote the noise to DEBUG so the catch-all below stays meaningful.
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<Void> handleNoResource(NoResourceFoundException e) {
+        log.debug("handler.no-resource: {}", e.getResourcePath());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
     }
 
     /** Catch-all so an unexpected error in /voice/* still returns parseable TwiML. */

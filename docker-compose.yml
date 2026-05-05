@@ -6,7 +6,9 @@ services:
       POSTGRES_USER: ${DB_USER:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
     ports:
-      - "${DB_PORT:-5432}:5432"
+      # Host-side mapping only. Inside the compose network, app still talks to postgres:5432.
+      # Default 5433 keeps clear of any local Postgres install on the host.
+      - "${DB_HOST_PORT:-5433}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -37,8 +39,27 @@ services:
       TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
       TWILIO_PHONE_NUMBER: ${TWILIO_PHONE_NUMBER:-}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # Tier 3: visual diagnosis. Mail goes through real SMTP (Gmail by default) so
+      # reviewers receive upload links in their actual inbox. MAIL_PASSWORD must be a
+      # Google App Password when MAIL_HOST is smtp.gmail.com.
+      MAIL_HOST: ${MAIL_HOST:-smtp.gmail.com}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:-no-reply@callwise.local}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+      UPLOAD_DIR: ${UPLOAD_DIR:-/app/uploads}
+      UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES:-10485760}
+      UPLOAD_TOKEN_TTL_MINUTES: ${UPLOAD_TOKEN_TTL_MINUTES:-30}
     ports:
-      - "${APP_PORT:-8080}:8080"
+      # Host-side mapping only. Spring still listens on 8080 inside the container, and ngrok
+      # forwards to app:8080 over the compose network. Change APP_HOST_PORT in .env if 8088
+      # also conflicts on your machine.
+      - "${APP_HOST_PORT:-8088}:8080"
+    volumes:
+      # Tier 3: persist uploaded photos on the host so reviewers can inspect them and
+      # restarts don't drop in-flight uploads.
+      - ./uploads:/app/uploads
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health || exit 1"]
       interval: 10s
@@ -48,18 +69,39 @@ services:
     networks:
       - callwise-net
 
-  # Public HTTPS tunnel for Twilio webhooks. The ngrok free tier auto-binds one
-  # persistent *.ngrok-free.dev domain per account, so the URL survives restarts
-  # without needing --domain. Override by adding "--domain=your-name.ngrok-free.app"
-  # if you've reserved a custom subdomain.
+  # Public HTTPS tunnel for Twilio webhooks. When NGROK_DOMAIN is set the tunnel binds
+  # explicitly to that reserved free-tier subdomain so it fails loudly if someone else
+  # holds it (instead of silently grabbing a random URL that breaks PUBLIC_BASE_URL).
+  # When NGROK_DOMAIN is empty we fall back to ngrok's per-account auto-bind.
   ngrok:
     image: ngrok/ngrok:latest
     restart: unless-stopped
-    command: ["http", "app:8080", "--log=stdout"]
+    entrypoint: ["/bin/sh", "-c"]
+    # ngrok's inspector binds to 127.0.0.1 by default — invisible from the host through
+    # Docker port mapping. We generate a config file inline that pins web_addr to 0.0.0.0
+    # and conditionally adds the reserved domain when NGROK_DOMAIN is set.
+    command:
+      - |
+        set -e
+        CONFIG=/tmp/ngrok.yml
+        {
+          echo 'version: "2"'
+          echo 'web_addr: 0.0.0.0:4040'
+          [ -n "$$NGROK_AUTHTOKEN" ] && echo "authtoken: $$NGROK_AUTHTOKEN"
+          echo 'tunnels:'
+          echo '  app:'
+          echo '    proto: http'
+          echo '    addr: app:8080'
+          [ -n "$$NGROK_DOMAIN" ] && echo "    domain: $$NGROK_DOMAIN"
+        } > "$$CONFIG"
+        exec ngrok start app --config "$$CONFIG" --log=stdout
     environment:
       NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN:-}
+      NGROK_DOMAIN: ${NGROK_DOMAIN:-}
     ports:
-      - "4040:4040"   # ngrok inspector UI on http://localhost:4040
+      # ngrok web inspector. Default 4041 (instead of upstream 4040) to dodge a stray
+      # second ngrok binary running on the host.
+      - "${NGROK_INSPECTOR_PORT:-4041}:4040"
     depends_on:
       app:
         condition: service_healthy
